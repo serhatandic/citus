@@ -1,7 +1,7 @@
 {
   "the_process_branch": "release-12",
-  "the_process_sha": "be937ba0f5c5263d4c69a22b0e12b987d002fa13",
-  "image_suffix": "-vbe937ba",
+  "the_process_sha": "352e4a5c10daff5106211e923a0ee93c465cd8ad",
+  "image_suffix": "-v352e4a5",
   "postgres": {
     "14": "14.25",
     "15": "15.20",
