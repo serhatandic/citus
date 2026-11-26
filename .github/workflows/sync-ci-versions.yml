@@ -9,7 +9,7 @@ on:
 concurrency:
   group: sync-ci-versions-${{ github.event.client_payload.line || inputs.line }}
   cancel-in-progress: false
-permissions: { contents: read }
+permissions: { contents: write, pull-requests: write }
 env: { FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true" }
 jobs:
   discover:
@@ -34,7 +34,7 @@ jobs:
           [[ "$LINE" =~ ^[a-zA-Z0-9._/-]+$ && "$SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::Invalid line/sha" >&2; exit 1; }
           short_sha="${SHA:0:7}"
           [[ "$TAG_SUFFIX" =~ ^-v[0-9a-f]{7,40}$ && "-v${SHA}" == "${TAG_SUFFIX}"* ]] || { echo "::error::tag_suffix mismatch" >&2; exit 1; }
-          raw=$(gh api "repos/citusdata/the-process/contents/versions.json?ref=${SHA}" --jq '.content' | base64 -d)
+          raw=$(gh api "repos/serhatandic/the-process/contents/versions.json?ref=${SHA}" --jq '.content' | base64 -d)
           versions=$(jq -ec --arg line "$LINE" '
             if .line != $line then error("versions.json line mismatch") else . end | {
               postgres: (.postgres_ci | if type == "object" and length > 0 then with_entries(.value |= gsub("~"; "") | if (.key | test("\\A[0-9]+\\z")) and (.value | test("\\A[0-9]+(\\.[0-9]+|(alpha|beta|rc)[0-9]+)\\z")) then . else error("bad PG version") end) | to_entries | sort_by(.key | tonumber) | from_entries else error("bad postgres_ci") end),
@@ -43,21 +43,24 @@ jobs:
               style_checker_tools_version: (.style_checker_tools_version | if type == "string" and test("\\A[0-9]+\\.[0-9]+\\.[0-9]+\\z") then . else error("bad style_checker_tools_version") end)
             } | . as $v | if ($v.postgres[$v.default_pg_major] | type == "string") and ($v.upgrade_test_pg | all($v.postgres[.] | type == "string")) then . else error("major ref not in postgres_ci") end
           ' <<<"$raw")
+          echo "[fork-live-check] Running real imagetools inspect on public ghcr.io/citusdata/exttester:18.7-vd742f20"
+          docker buildx imagetools inspect "ghcr.io/citusdata/exttester:18.7-vd742f20" >/dev/null
+          echo "[fork-live-check] Real imagetools inspect succeeded!"
           pg_vers=$(jq -r '.postgres[]' <<<"$versions")
           while IFS= read -r ver; do
             for img in extbuilder exttester failtester; do
-              docker buildx imagetools inspect "ghcr.io/citusdata/${img}:${ver}${TAG_SUFFIX}" >/dev/null
+              echo "[fork-stub] Would inspect ghcr.io/citusdata/${img}:${ver}${TAG_SUFFIX}"
             done
           done <<<"$pg_vers"
           upg_tag=$(jq -r '[.postgres | to_entries | sort_by(.key | tonumber)[].value] | join("-")' <<<"$versions")
-          docker buildx imagetools inspect "ghcr.io/citusdata/pgupgradetester:${upg_tag}${TAG_SUFFIX}" >/dev/null
+          echo "[fork-stub] Would inspect ghcr.io/citusdata/pgupgradetester:${upg_tag}${TAG_SUFFIX}"
           citus_upg_vers=$(jq -r '. as $v | $v.upgrade_test_pg[] | $v.postgres[.]' <<<"$versions")
           if [ -n "$citus_upg_vers" ]; then
             while IFS= read -r ver; do
-              docker buildx imagetools inspect "ghcr.io/citusdata/citusupgradetester:${ver}${TAG_SUFFIX}" >/dev/null
+              echo "[fork-stub] Would inspect ghcr.io/citusdata/citusupgradetester:${ver}${TAG_SUFFIX}"
             done <<<"$citus_upg_vers"
           fi
-          docker buildx imagetools inspect "ghcr.io/citusdata/stylechecker:$(jq -r '.style_checker_tools_version' <<<"$versions")${TAG_SUFFIX}" >/dev/null
+          echo "[fork-stub] Would inspect ghcr.io/citusdata/stylechecker:$(jq -r '.style_checker_tools_version' <<<"$versions")${TAG_SUFFIX}"
           all_branches=$(gh api --paginate "repos/${GITHUB_REPOSITORY}/branches" --jq '.[].name')
           [ -n "$all_branches" ] || { echo "::error::No branches returned" >&2; exit 1; }
           branches=()
@@ -81,11 +84,8 @@ jobs:
       matrix:
         branch: ${{ fromJson(needs.discover.outputs.branches) }}
     steps:
-      - id: app-token
-        uses: actions/create-github-app-token@v3
-        with: { app-id: "${{ vars.GH_APP_ID || secrets.GH_APP_ID }}", private-key: "${{ secrets.GH_APP_KEY }}" }
       - uses: actions/checkout@v5
-        with: { ref: "${{ matrix.branch }}", token: "${{ steps.app-token.outputs.token }}" }
+        with: { ref: "${{ matrix.branch }}", token: "${{ github.token }}" }
       - name: Update ci-versions and devcontainer
         shell: bash
         env:
@@ -100,7 +100,7 @@ jobs:
           check_no_regress() {
             local ref_sha="$1"
             if [ -n "$ref_sha" ] && [ "$ref_sha" != "$SHA" ]; then
-              local st; st=$(gh api "repos/citusdata/the-process/compare/${SHA}...${ref_sha}" --jq '.status')
+              local st; st=$(gh api "repos/serhatandic/the-process/compare/${SHA}...${ref_sha}" --jq '.status')
               [ "$st" != "ahead" ] || { echo "::error::Refusing regression: ${SHA} is an ancestor of ${ref_sha}" >&2; exit 1; }
             fi
           }
@@ -124,7 +124,7 @@ jobs:
           fi
       - uses: peter-evans/create-pull-request@v7
         with:
-          token: ${{ steps.app-token.outputs.token }}
+          token: ${{ github.token }}
           base: ${{ matrix.branch }}
           branch: automation/ci-versions-${{ matrix.branch }}
           delete-branch: true

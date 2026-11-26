@@ -21,8 +21,6 @@ run-name: Nightly arm64 (${{ github.ref_name }})
 # follow-up, out of scope for this workflow.
 
 on:
-  schedule:
-    - cron: '0 4 * * *'          # 04:00 UTC daily (offset from the 03:00 cassert nightly cron)
   workflow_dispatch:
 
 permissions:

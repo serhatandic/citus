@@ -9,8 +9,6 @@ run-name: Nightly cassert (${{ github.ref_name }})
 # PostgreSQL versions are loaded from .github/ci-versions.json in the `params` job below.
 
 on:
-  schedule:
-    - cron: '0 3 * * *'          # 03:00 UTC daily
   workflow_dispatch:
 
 permissions:
